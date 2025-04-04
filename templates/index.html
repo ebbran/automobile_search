@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>AutoSearch Pro - Automotive Intelligence Search</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        :root {
+            --primary-color: #2a5d8a;
+            --secondary-color: #e9f2fa;
+        }
+
+        body {
+            background-color: #f8f9fa;
+            min-height: 100vh;
+        }
+
+        .search-header {
+            background: var(--primary-color);
+            padding: 2rem 0;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .result-card {
+            transition: transform 0.2s, box-shadow 0.2s;
+            border: none;
+            border-radius: 10px;
+        }
+
+        .result-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .car-image {
+            height: 180px;
+            object-fit: cover;
+            border-radius: 8px 8px 0 0;
+        }
+
+        .feature-badge {
+            background-color: #e9f2fa;
+            color: #2a5d8a;
+            padding: 0.5em 0.8em;
+            font-size: 0.9em;
+        }
+
+        .make, .model {
+            display: inline-block;
+            margin-right: 0.5em;
+        }
+
+        .year {
+            min-width: 60px;
+            text-align: center;
+        }
+
+        .price {
+            white-space: nowrap;
+        }
+
+        .query-chip {
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .query-chip:hover {
+            background: var(--primary-color) !important;
+            color: white !important;
+        }
+
+        #loadingIndicator {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 1000;
+        }
+
+        #errorMessage {
+            display: none;
+            background-color: #f8d7da;
+            color: #721c24;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin-top: 1rem;
+        }
+
+        #noResultsMessage {
+            display: none;
+            background-color: #fff3cd;
+            color: #856404;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin-top: 1rem;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <header class="search-header">
+        <div class="container">
+            <h1 class="text-white mb-4">AutoSearch Pro</h1>
+            <div class="input-group input-group-lg">
+                <input type="text" id="searchInput" class="form-control"
+                       placeholder="Search for vehicles (e.g., 'SUV with good mileage')"
+                       aria-label="Vehicle search">
+                <select id="currencySelector" class="form-select">
+                    <option value="USD">USD - US Dollar</option>
+                    <option value="EUR">EUR - Euro</option>
+                    <option value="GBP">GBP - British Pound</option>
+                    <option value="INR">INR - Indian Rupee</option>
+                </select>
+                <button class="btn btn-light" type="button" id="searchButton">
+                    <i class="bi bi-search"></i> Search
+                </button>
+            </div>
+            <div class="mt-3" id="sampleQueries">
+                <!-- Sample queries will be dynamically inserted here -->
+            </div>
+            <div id="errorMessage" class="mt-3"></div>
+        </div>
+    </header>
+
+    <main class="container py-4">
+        <div id="noResultsMessage">No vehicles match your search criteria. Try a different query.</div>
+        <div id="resultsContainer" class="row g-4"></div>
+    </main>
+
+    <div id="loadingIndicator" class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+
+    <!-- Result Card Template -->
+    <template id="resultTemplate">
+        <div class="col-12 col-md-6 col-lg-4">
+            <div class="card result-card h-100">
+                <img src="/static/images/placeholder-car.jpg"
+                    class="car-image card-img-top"
+                    alt="Vehicle image">
+                <div class="card-body">
+                    <h5 class="card-title mb-3">
+                        <span class="make"></span>
+                        <span class="model"></span>
+                    </h5>
+                    <div class="d-flex justify-content-between mb-3">
+                        <span class="badge bg-primary year"></span>
+                        <span class="text-success fw-bold price"></span>
+                    </div>
+                    <div class="features-container mb-3"></div>
+                    <div class="text-muted small">
+                        Relevance score: <span class="score"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </template>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize error handling elements
+            const errorMessageEl = document.getElementById('errorMessage');
+            const noResultsMessageEl = document.getElementById('noResultsMessage');
+            const searchButton = document.getElementById('searchButton');
+            const searchInput = document.getElementById('searchInput');
+            const resultsContainer = document.getElementById('resultsContainer');
+            const loadingIndicator = document.getElementById('loadingIndicator');
+            const currencySelector = document.getElementById("currencySelector");
+
+            // Sample queries
+            const sampleQueries = [
+                "SUV with good fuel economy",
+                "Luxury sedan with leather seats",
+                "Compact car under $20000",
+                "Hybrid vehicles with high safety rating",
+                "Sports cars with over 400 horsepower"
+            ];
+
+            // Function to show error message
+            function showError(message) {
+                errorMessageEl.textContent = message;
+                errorMessageEl.style.display = 'block';
+                setTimeout(() => {
+                    errorMessageEl.style.display = 'none';
+                }, 5000); // Hide after 5 seconds
+            }
+
+            // Function to show/hide loading indicator
+            function showLoading(show) {
+                loadingIndicator.style.display = show ? 'block' : 'none';
+                if (show) {
+                    searchButton.innerHTML = '<i class="bi bi-hourglass"></i> Searching...';
+                    searchButton.disabled = true;
+                } else {
+                    searchButton.innerHTML = '<i class="bi bi-search"></i> Search';
+                    searchButton.disabled = false;
+                }
+            }
+
+            // Function to initialize sample queries
+            function initSampleQueries() {
+                try {
+                    const queryContainer = document.getElementById('sampleQueries');
+                    if (!queryContainer) {
+                        console.error('Sample queries container not found');
+                        return;
+                    }
+
+                    queryContainer.innerHTML = ''; // Clear existing content
+
+                    sampleQueries.forEach(query => {
+                        const chip = document.createElement('span');
+                        chip.className = 'query-chip badge bg-light text-dark me-2 mb-2';
+                        chip.textContent = query;
+                        chip.onclick = () => {
+                            searchInput.value = query;
+                            performSearch();
+                        };
+                        queryContainer.appendChild(chip);
+                    });
+                } catch (error) {
+                    console.error('Error initializing sample queries:', error);
+                    showError('Error initializing sample queries. Please refresh the page.');
+                }
+            }
+
+            // Initialize sample queries
+            initSampleQueries();
+
+            // Function to convert price to selected currency
+            async function convertPrice(priceInUSD) {
+                const selectedCurrency = currencySelector.value;
+                try {
+                    const response = await fetch('/convert', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ amount: priceInUSD, currency: selectedCurrency })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    return data.converted_amount ? `${data.converted_amount} ${selectedCurrency}` : `${priceInUSD} USD`;
+                } catch (error) {
+                    console.error('Price conversion error:', error);
+                    return `${priceInUSD} USD`;
+                }
+            }
+
+            // Function to update all prices to selected currency
+            async function updatePrices() {
+                document.querySelectorAll(".price").forEach(async (element) => {
+                    let priceText = element.getAttribute("data-usd-price");
+                    if (priceText) {
+                        element.textContent = await convertPrice(parseFloat(priceText));
+                    }
+                });
+            }
+
+            // Function to perform search
+            async function performSearch() {
+                // Reset UI state
+                errorMessageEl.style.display = 'none';
+                noResultsMessageEl.style.display = 'none';
+                resultsContainer.innerHTML = '';
+
+                const query = searchInput.value.trim();
+                if (!query) {
+                    showError('Please enter a search query');
+                    return;
+                }
+
+                showLoading(true);
+                let controller = new AbortController();
+
+                // Set a timeout to abort the request if it takes too long
+                const timeoutId = setTimeout(() => {
+                    controller.abort();
+                    showError('Search timed out. Please try again.');
+                    showLoading(false);
+                }, 15000); // 15 seconds timeout
+
+                try {
+                    const response = await fetch('/search', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ query }),
+                        signal: controller.signal
+                    });
+
+                    clearTimeout(timeoutId); // Clear the timeout
+
+                    // Check if the response status is OK
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status} ${response.statusText}`);
+                    }
+
+                    const results = await response.json();
+                    console.log('Received results:', results);
+
+                    if (Array.isArray(results) && results.length > 0) {
+                        displayResults(results);
+                    } else {
+                        noResultsMessageEl.style.display = 'block';
+                    }
+                } catch (error) {
+                    console.error('Fetch Error:', error);
+                    if (error.name === 'AbortError') {
+                        showError('Search request was aborted due to timeout.');
+                    } else {
+                        showError('Search failed: ' + (error.message || 'Unknown error'));
+                    }
+                } finally {
+                    showLoading(false);
+                }
+            }
+
+            // Function to display search results
+            function displayResults(results) {
+                try {
+                    resultsContainer.innerHTML = '';
+
+                    if (!Array.isArray(results) || results.length === 0) {
+                        noResultsMessageEl.style.display = 'block';
+                        return;
+                    }
+
+                    noResultsMessageEl.style.display = 'none';
+
+                    results.slice(0, 6).forEach(result => {
+                        if (!result || !result.car_info) {
+                            console.warn('Invalid result item:', result);
+                            return;
+                        }
+
+                        try {
+                            const template = document.getElementById('resultTemplate');
+                            if (!template) {
+                                throw new Error('Result template not found');
+                            }
+
+                            const clone = template.content.cloneNode(true);
+                            const car = result.car_info;
+
+                            // Set make and model
+                            const makeElement = clone.querySelector('.make');
+                            const modelElement = clone.querySelector('.model');
+
+                            if (makeElement) makeElement.textContent = car.make || 'Unknown';
+                            if (modelElement) modelElement.textContent = car.model || '';
+
+                            // Set year and price
+                            const yearElement = clone.querySelector('.year');
+                            const priceElement = clone.querySelector('.price');
+
+                            if (yearElement) yearElement.textContent = car.year || 'N/A';
+                            if (priceElement) {
+                                const price = car.price ? `$${car.price}` : 'Price not available';
+                                priceElement.textContent = price;
+                                if (car.price) {
+                                    priceElement.setAttribute('data-usd-price', car.price);
+                                }
+                            }
+
+                            // Set score
+                            const scoreElement = clone.querySelector('.score');
+                            if (scoreElement) {
+                                scoreElement.textContent = typeof result.score === 'number'
+                                    ? result.score.toFixed(3)
+                                    : 'N/A';
+                            }
+
+                            // Set features
+                            const featuresContainer = clone.querySelector('.features-container');
+                            if (featuresContainer) {
+                                featuresContainer.innerHTML = '';
+
+                                const features = [
+                                    car.engine && car.engine !== 'N/A' ? `Engine: ${car.engine}` : null,
+                                    car.fuel_type && car.fuel_type !== 'N/A' ? `Fuel: ${car.fuel_type}` : null
+                                ].filter(Boolean);
+
+                                if (features.length === 0) {
+                                    const noFeatures = document.createElement('p');
+                                    noFeatures.className = 'text-muted small';
+                                    noFeatures.textContent = 'No additional features available';
+                                    featuresContainer.appendChild(noFeatures);
+                                } else {
+                                    features.forEach(feature => {
+                                        const badge = document.createElement('span');
+                                        badge.className = 'feature-badge badge rounded-pill me-1 mb-1';
+                                        badge.textContent = feature;
+                                        featuresContainer.appendChild(badge);
+                                    });
+                                }
+                            }
+
+                            resultsContainer.appendChild(clone);
+                        } catch (cardError) {
+                            console.error('Error creating card:', cardError);
+                            // Continue with other results
+                        }
+                    });
+
+                    // If we rendered results but the container is still empty, show no results message
+                    if (resultsContainer.children.length === 0) {
+                        noResultsMessageEl.style.display = 'block';
+                    }
+
+                    // Update prices to selected currency
+                    updatePrices();
+                } catch (error) {
+                    console.error('Error displaying results:', error);
+                    showError('Error displaying results: ' + error.message);
+                }
+            }
+
+            // Add event listeners
+            searchButton.addEventListener('click', performSearch);
+            searchInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') performSearch();
+            });
+            currencySelector.addEventListener("change", updatePrices);
+
+            // Check if the browser supports the Fetch API
+            if (!window.fetch) {
+                showError('Your browser does not support modern search features. Please upgrade your browser.');
+                searchButton.disabled = true;
+            }
+        });
+    </script>
+</body>
+</html>
